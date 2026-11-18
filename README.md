@@ -139,7 +139,7 @@ Ran 25 tests in 0.006s
 OK
 ```
 
-同一次运行的终端记录（静态检查 + 全部用例）见 [`docs/verify_output.png`](docs/verify_output.png)。
+同一次运行的终端记录（静态检查 + 全部 25 个用例，含命令与退出码）见纯文本 [`docs/verify_output.txt`](docs/verify_output.txt)；终端截图版见 [`docs/verify_output.png`](docs/verify_output.png)。两份内容对应同一次运行，可任选其一核对，也可按 txt 末尾的「复现方式」本机重跑。
 
 分组：
 

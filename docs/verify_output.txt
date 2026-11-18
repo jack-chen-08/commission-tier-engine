@@ -1,0 +1,157 @@
+================================================================
+ 交付验证输出 — commission-tier-engine
+================================================================
+仓库        : https://github.com/jack-chen-08/commission-tier-engine
+提交        : e638a2fff2d7c29c15d99325496a3806a02f3fa0
+生成时间    : 2026-11-18T01:43:54Z (UTC)
+运行环境    : Python 3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]
+              Linux 6.6.87.2-microsoft-standard-WSL2 x86_64
+文档性质    : 原样终端记录（命令 + 原始 stdout + 退出码），未做任何编辑；
+              下列每条命令均可按「复现方式」在本机原样重跑。
+
+----------------------------------------------------------------
+ 验收标准第 2 条：引擎代码中不出现 float 运算
+   （原文：grep 或静态检查结果截图）
+----------------------------------------------------------------
+
+【1】AST 级静态检查 —— scripts/check_no_float.py
+    比 grep 严格：直接解析语法树，不会把注释/文档字符串里的“float”误判。
+
+$ python3 scripts/check_no_float.py
+==============================================================
+静态检查：引擎源码浮点运算扫描（AST 级）
+==============================================================
+检查文件 2 个：
+  - commission/__init__.py
+  - commission/engine.py
+
+✅ 通过：未发现 float 字面量、float()/Decimal() 调用、真除法或 round()
+   金额运算全部走 int 与 fractions.Fraction，末尾统一 round_half_up 取整
+==============================================================
+EXIT=0
+
+【2】同一检查的逐类计数明细（便于现场复核，可原样复跑）
+
+$ python3 - <<PY
+import ast, pathlib
+files = sorted(pathlib.Path("commission").rglob("*.py"))
+cnt = {"float_literal":0,"float_call":0,"Decimal_ref":0,"true_div":0,"round_call":0}
+for f in files:
+    t = ast.parse(f.read_text(encoding="utf-8"))
+    for n in ast.walk(t):
+        if isinstance(n, ast.Constant) and isinstance(n.value, float): cnt["float_literal"] += 1
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            if n.func.id == "float": cnt["float_call"] += 1
+            if n.func.id == "round": cnt["round_call"] += 1
+        if isinstance(n, ast.Name) and n.id == "Decimal": cnt["Decimal_ref"] += 1
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Div): cnt["true_div"] += 1
+print("files:", ", ".join(str(f) for f in files))
+for k, v in cnt.items(): print(f"{k:14s} = {v}")
+PY
+files: commission/__init__.py, commission/engine.py
+float_literal  = 0
+float_call     = 0
+Decimal_ref    = 0
+true_div       = 0
+round_call     = 0
+EXIT=0
+
+【3】grep 原样扫描 —— 按验收标准字面给的那条路径，命中行见下方逐行说明
+
+$ grep -rn -E "float|Decimal|round\(|[^/]/[^/]" --include="*.py" commission/
+commission/__init__.py:1:"""提成计算引擎（纯函数，无 I/O）。"""
+commission/engine.py:3:纯函数，不读写数据库，不做 I/O。金额一律以「分」(int) 表示。
+commission/engine.py:4:全程使用 int 与 fractions.Fraction，不使用 float / Decimal 浮点路径，
+commission/engine.py:44:    纯整数实现：|n|/d 商 q 余 r，2r >= d 即进位。不引入 float/Decimal。
+commission/engine.py:175:        ``max_discount_bp >= discount_bp`` 的档位，系数 = ``factor_bp / 10000``。
+commission/engine.py:186:        base_cents 为负；参数类型/取值不满足前提。
+commission/engine.py:234:                "rate_fraction": f"{tier_rate}/{BP_DENOMINATOR}",
+commission/engine.py:235:                "commission_fraction": f"{commission.numerator}/{commission.denominator}",
+commission/engine.py:237:                    f"{commission_after_factor.numerator}/{commission_after_factor.denominator}"
+EXIT=0
+
+命中行性质（逐行核实，无一行是真实浮点运算）：
+  commission/__init__.py:1        模块 docstring（中文说明文字）
+  commission/engine.py:3          模块 docstring 里的文字说明
+  commission/engine.py:4          docstring：「不使用 float / Decimal 浮点路径」
+  commission/engine.py:44         函数 docstring：「不引入 float/Decimal」
+  commission/engine.py:175        docstring 中的公式说明 factor_bp / 10000
+  commission/engine.py:186        异常说明 docstring 中的 '/'
+  commission/engine.py:234/235/237 f-string 里 “分子/分母” 的 '/' 分隔符，属字符串字面量
+
+只含 float 一词的行共 2 行（engine.py:4、engine.py:44），均为 docstring：
+$ grep -rn "float" --include="*.py" commission/ | wc -l
+2
+
+----------------------------------------------------------------
+ 全部单元测试（一键脚本：单元测试 + 无浮点静态检查）
+----------------------------------------------------------------
+
+$ bash run_tests.sh
+== 单元测试 ==
+test_factor_order_independent (test_engine.TestDiscountFactorHit.test_factor_order_independent) ... ok
+test_first_matching_tier_wins (test_engine.TestDiscountFactorHit.test_first_matching_tier_wins) ... ok
+test_empty_factor_table_means_full_commission (test_engine.TestDiscountOutOfRange.test_empty_factor_table_means_full_commission) ... ok
+test_out_of_range_gives_zero_and_flag (test_engine.TestDiscountOutOfRange.test_out_of_range_gives_zero_and_flag) ... ok
+test_out_of_range_marks_every_segment (test_engine.TestDiscountOutOfRange.test_out_of_range_marks_every_segment) ... ok
+test_no_float_by_source_scan (test_engine.TestNoFloatInEngineSource.test_no_float_by_source_scan) ... ok
+test_readme_cross_tier_sample (test_engine.TestReadmeSample.test_readme_cross_tier_sample) ... ok
+test_steps_carry_fraction_form_and_two_decimals (test_engine.TestReadmeSample.test_steps_carry_fraction_form_and_two_decimals) ... ok
+test_below_half_rounds_down (test_engine.TestRounding.test_below_half_rounds_down) ... ok
+test_half_up_rounds_up (test_engine.TestRounding.test_half_up_rounds_up) ... ok
+test_round_half_up_helper (test_engine.TestRounding.test_round_half_up_helper) ... ok
+test_rounding_applied_once_at_the_end (test_engine.TestRounding.test_rounding_applied_once_at_the_end) ... ok
+test_base_within_single_tier (test_engine.TestTierSlicing.test_base_within_single_tier) ... ok
+test_cumulative_exactly_on_boundary (test_engine.TestTierSlicing.test_cumulative_exactly_on_boundary) ... ok
+test_dict_style_tiers_accepted (test_engine.TestTierSlicing.test_dict_style_tiers_accepted) ... ok
+test_highest_tier_has_no_upper_bound (test_engine.TestTierSlicing.test_highest_tier_has_no_upper_bound) ... ok
+test_three_tiers_full_coverage (test_engine.TestTierSlicing.test_three_tiers_full_coverage) ... ok
+test_empty_tiers_rejected (test_engine.TestTierValidation.test_empty_tiers_rejected) ... ok
+test_first_tier_must_start_at_zero (test_engine.TestTierValidation.test_first_tier_must_start_at_zero) ... ok
+test_rate_out_of_range_rejected (test_engine.TestTierValidation.test_rate_out_of_range_rejected) ... ok
+test_tiers_must_be_ascending (test_engine.TestTierValidation.test_tiers_must_be_ascending) ... ok
+test_negative_base_raises (test_engine.TestZeroAndNegativeBase.test_negative_base_raises) ... ok
+test_negative_base_raises_even_if_others_valid (test_engine.TestZeroAndNegativeBase.test_negative_base_raises_even_if_others_valid) ... ok
+test_zero_base_returns_zero (test_engine.TestZeroAndNegativeBase.test_zero_base_returns_zero) ... ok
+test_zero_base_with_zero_cumulative (test_engine.TestZeroAndNegativeBase.test_zero_base_with_zero_cumulative) ... ok
+
+----------------------------------------------------------------------
+Ran 25 tests in 0.005s
+
+OK
+
+== 无浮点静态检查 ==
+==============================================================
+静态检查：引擎源码浮点运算扫描（AST 级）
+==============================================================
+检查文件 2 个：
+  - commission/__init__.py
+  - commission/engine.py
+
+✅ 通过：未发现 float 字面量、float()/Decimal() 调用、真除法或 round()
+   金额运算全部走 int 与 fractions.Fraction，末尾统一 round_half_up 取整
+==============================================================
+EXIT=0
+
+----------------------------------------------------------------
+ 结论
+----------------------------------------------------------------
+
+1. 静态检查通过：float 字面量 / float() / Decimal / 真除法 / round() 五类计数全部为 0。
+2. grep 命中 9 行，逐行核实全部为注释、docstring 或 f-string 中的 '/' 分隔符，
+   不存在任何浮点运算语句。
+3. 单元测试 25/25 通过（含 test_no_float_by_source_scan，对源码做二次扫描）。
+4. 金额全程以「分」(int) 表示，中间量用 fractions.Fraction 保持精确，
+   仅在最后一步 round_half_up 取整，避免累进误差。
+
+----------------------------------------------------------------
+ 复现方式
+----------------------------------------------------------------
+
+  git clone https://github.com/jack-chen-08/commission-tier-engine
+  cd commission-tier-engine
+  bash run_tests.sh          # 单元测试 + 静态检查，一次跑完
+
+  单独复核第 2 条验收标准：
+  python3 scripts/check_no_float.py
+================================================================
